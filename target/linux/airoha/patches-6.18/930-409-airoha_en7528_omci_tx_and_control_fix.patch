@@ -17,7 +17,7 @@
  	skb_set_queue_mapping(skb, 0);
  
  	ret = airoha_qdma_mips_xmit(port->qdma, skb, &msg, 0);
-+	pr_info("econet_xmit_xpon_oam: transmitted OAM frame len=%u chn=%u gem=%u ret=%d\n",
++	pr_debug("econet_xmit_xpon_oam: transmitted OAM frame len=%u chn=%u gem=%u ret=%d\n",
 +		skb->len, channel, gem_port_id, ret);
  
  	return ret < 0 ? ret : 0;
@@ -79,7 +79,7 @@
  
  	atomic64_inc(&odev->tx_packets);
  	atomic64_add(tx_len, &odev->tx_bytes);
-+	pr_info("omci_device_xmit: successfully sent OMCI packet len=%u gem=%u\n", tx_len, gem_port_id);
++	pr_debug("omci_device_xmit: successfully sent OMCI packet len=%u gem=%u\n", tx_len, gem_port_id);
  	return 0;
  
  free_skb:
@@ -89,7 +89,7 @@
  	int ret;
  
  	ret = omci_wire_decode(skb->data, skb->len, &request);
-+	pr_info("OMCI RX: ret=%d len=%u act=%u cls=%u ent=%u dev_id=%#x enabled=%d\n",
++	pr_debug("OMCI RX: ret=%d len=%u act=%u cls=%u ent=%u dev_id=%#x enabled=%d\n",
 +		ret, skb->len, request.message_type & 0x1f, request.class_id,
 +		request.entity_id, request.device_id, agent->enabled);
  	if (ret)
@@ -115,7 +115,7 @@
  
  	omci_agent_log_wire(odev, "TX", response, response_len);
  	ret = omci_device_xmit(odev, response, response_len);
-+	pr_info("OMCI TX result: ret=%d resp_len=%zu\n", ret, response_len);
++	pr_debug("OMCI TX result: ret=%d resp_len=%zu\n", ret, response_len);
  	if (!ret) {
  		atomic64_inc(&agent->responses);
  		if (!duplicate && !fake && !unsupported) {

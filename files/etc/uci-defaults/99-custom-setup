@@ -5,6 +5,11 @@ uci -q delete uhttpd.main.lua_prefix
 uci set uhttpd.main.max_requests='10'
 uci commit uhttpd
 
+# System logging: suppress noisy kernel informational logs on console and klogd
+uci -q set system.@system[0].conloglevel='4'
+uci -q set system.@system[0].klogconloglevel='4'
+uci commit system
+
 # Everything below is first-install setup only. On an upgrade the saved
 # configuration already has a WAN and must not be overwritten.
 uci -q get network.wan.device >/dev/null && exit 0

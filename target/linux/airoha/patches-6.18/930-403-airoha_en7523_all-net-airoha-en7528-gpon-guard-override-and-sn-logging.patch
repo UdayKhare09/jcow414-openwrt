@@ -42,15 +42,6 @@
  	priv->byte_delay = 0;
  	priv->bit_delay = 0;
  }
-@@ -3066,7 +3074,7 @@
- 			sn_cfg = gpon_read(priv, GPON_SN_MSG_CFG);
- 			phy_ret = airoha_xpon_phy_get_gpon_tx_counters(
- 				priv->phy, &phy_tx_frames, &phy_tx_bursts);
--			dev_dbg(priv->dev,
-+			dev_info(priv->dev,
- 				"GPON SN event: irq=%#08x cfg=%#010x threshold=%lu tx_power=%lu random_delay=%lu rsp=%#06x act=%u serial=%#010x/%#010x guard=%#010x type12=%#010x type3=%#010x pre_delay=%#010x dbg_dly=%#010x tx_sync=%#010x phy_tx=%#010x/%#010x phy_ret=%d\n",
- 				 active, sn_cfg,
- 				 FIELD_GET(SN_MSG_CFG_SN_REQ_THR_MASK, sn_cfg),
 @@ -4663,10 +4671,11 @@
  	.version = econet_en7528,
  	.mode_from_dt = true,
@@ -71,7 +62,7 @@
  	if (pp->state != GPON_O3_SERIAL_NUMBER)
  		return;
  
-+	pr_info("airoha_ploam: received ASSIGN_ONU_ID: id=%u sn=%8phN our_sn=%8phN\n",
++	pr_debug("airoha_ploam: received ASSIGN_ONU_ID: id=%u sn=%8phN our_sn=%8phN\n",
 +		c[0], &c[1], pp->sn);
  	/* c[0]=new ONU-ID, c[1..8]=SN for verification */
  	if (memcmp(&c[1], pp->sn, 8) != 0)
@@ -80,7 +71,7 @@
  {
  	if (onu_id != pp->onu_id)
  		return;
-+	pr_info("airoha_ploam: received REQUEST_PASSWORD for onu_id=%u state=%d\n", onu_id, pp->state);
++	pr_debug("airoha_ploam: received REQUEST_PASSWORD for onu_id=%u state=%d\n", onu_id, pp->state);
  	if (pp->state == GPON_O5_OPERATION)
  		ploam_send_password(pp);
  }

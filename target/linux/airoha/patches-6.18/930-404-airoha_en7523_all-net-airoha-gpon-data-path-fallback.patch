@@ -10,23 +10,7 @@
  }
  
  static int econet_xpon_classify(struct airoha_gdm_dev *port,
-@@ -4099,8 +4100,14 @@ static netdev_tx_t econet_qdma_xmit(stru
- 	if (ret == EBUSY)
- 		netif_tx_stop_queue(txq);
- 
-+	if (xpon)
-+		dev_info_ratelimited(&dev->dev, "econet_qdma_xmit OK: chn=%u gem=%u len=%u\n",
-+				     channel, xpon_info.gem_port_id, skb->len);
-+
- 	return NETDEV_TX_OK;
- 
- drop:
-+	dev_warn_ratelimited(&dev->dev, "econet_qdma_xmit DROP: stopped=%d xpon=%d chn=%u gem=%u ret=%d len=%u\n",
-+			     READ_ONCE(port->xpon_tx_stopped), xpon, channel, xpon_info.gem_port_id, ret, skb->len);
- 	dev_kfree_skb_any(skb);
- 	dev->stats.tx_dropped++;
- 	return NETDEV_TX_OK;
-@@ -7712,7 +7719,8 @@ static int airoha_xpon_lookup_service(st
+@@ -7712,7 +7713,8 @@ static int airoha_xpon_lookup_service(st
  	}
  	spin_unlock_bh(&dev->xpon_service_lock);
  

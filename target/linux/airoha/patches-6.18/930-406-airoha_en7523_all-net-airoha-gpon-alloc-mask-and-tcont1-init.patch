@@ -46,7 +46,7 @@ diff -urN a/drivers/net/ethernet/airoha/airoha_ploam.c b/drivers/net/ethernet/ai
  	alloc_id = ((u16)c[0] << 4) | ((c[1] >> 4) & 0xF);
  	/* c[2]=type: 0x01=allocate, 0xFF=deallocate */
  	allocate = (c[2] == 0x01);
-+	pr_info("airoha_ploam: received ASSIGN_ALLOC_ID: state=%d onu_id=%u (our=%u) alloc_id=%u allocate=%d\n",
++	pr_debug("airoha_ploam: received ASSIGN_ALLOC_ID: state=%d onu_id=%u (our=%u) alloc_id=%u allocate=%d\n",
 +		pp->state, onu_id, pp->onu_id, alloc_id, allocate);
 +
 +	if (onu_id != pp->onu_id)
