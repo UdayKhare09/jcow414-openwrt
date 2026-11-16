@@ -10,6 +10,10 @@ uci -q set system.@system[0].conloglevel='4'
 uci -q set system.@system[0].klogconloglevel='4'
 uci commit system
 
+# Firewall Flow Offloading (Fastpath packet acceleration)
+uci -q set firewall.@defaults[0].flow_offloading='1'
+uci -q commit firewall
+
 # Everything below is first-install setup only. On an upgrade the saved
 # configuration already has a WAN and must not be overwritten.
 uci -q get network.wan.device >/dev/null && exit 0
