@@ -13,7 +13,8 @@
 	};
 
 	chosen {
-		stdout-path = "/serial@1fbf0000:115200";
+		bootargs = "console=ttyS0,115200n8 earlycon";
+		stdout-path = "serial0:115200n8";
 	};
 
 	reg_usb1_vbus: regulator-usb1-vbus {
@@ -122,6 +123,22 @@
 
 &gsw_port4 {
 	label = "lan4";
+	status = "okay";
+};
+
+&gsw_phy1 {
+	status = "okay";
+};
+
+&gsw_phy2 {
+	status = "okay";
+};
+
+&gsw_phy3 {
+	status = "okay";
+};
+
+&gsw_phy4 {
 	status = "okay";
 };
 
@@ -238,8 +255,59 @@
 					eeprom_reservearea_1c0000: eeprom@1c0000 {
 						reg = <0x1c0000 0x400>;
 					};
+
+					/* GPON Serial Number */
+					gpon_sn: serial-number@14029c {
+						reg = <0x14029c 0xc>;
+					};
+
+					/* EN7571 BOSA Calibration */
+					en7571_cal: calibration@140477 {
+						reg = <0x140477 0xe0>;
+					};
 				};
 			};
 		};
 	};
+};
+
+&i2c0 {
+	status = "okay";
+
+	en7571: lddla@70 {
+		compatible = "airoha,en7571";
+		reg = <0x70>;
+
+		phys = <&xpon_phy>;
+		phy-names = "xpon";
+
+		nvmem-cells = <&en7571_cal>;
+		nvmem-cell-names = "calibration";
+
+		#optical-frontend-cells = <0>;
+	};
+};
+
+&xpon_phy {
+	status = "okay";
+};
+
+&xpon {
+	status = "okay";
+
+	omci-vendor-id = "SCOM";
+
+	optical-frontends = <&en7571>;
+	optical-frontend-names = "pon";
+};
+
+&gdm2 {
+	status = "okay";
+	phy-mode = "internal";
+	airoha,xpon-managed;
+
+	nvmem-cells = <&macaddr_bl 1>;
+	nvmem-cell-names = "mac-address";
+
+	openwrt,netdev-name = "pon0";
 };

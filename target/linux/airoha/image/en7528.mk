@@ -51,7 +51,7 @@ define Device/jiofiber_en7528
   KERNEL := kernel-bin | append-dtb | tclinux-free-bootbase-jump | lzma | \
     kernel-trx
   DEVICE_PACKAGES := kmod-usb3 kmod-mt7603 kmod-mt7615e kmod-mt7663-firmware-ap \
-                     airoha-en7571-firmware
+                     xpon-agent luci-app-xpon
 endef
 
 define Device/jiofiber_jcow414

@@ -1,108 +1,124 @@
-![OpenWrt logo](include/logo.png)
+# OpenWrt for Sercomm JioFiber JCOW414 (EcoNet EN7528DU)
 
-OpenWrt Project is a Linux operating system targeting embedded devices. Instead
-of trying to create a single, static firmware, OpenWrt provides a fully
-writable filesystem with package management. This frees you from the
-application selection and configuration provided by the vendor and allows you
-to customize the device through the use of packages to suit any application.
-For developers, OpenWrt is the framework to build an application without having
-to build a complete firmware around it; for users this means the ability for
-full customization, to use the device in ways never envisioned.
+This repository provides an open-source, upstream OpenWrt distribution with full GPON WAN, DSA Ethernet switching, and Dual-Band Wi-Fi support for the **Sercomm JioFiber JCOW414** optical network router.
 
-Sunshine!
+---
 
-## Download
+## 1. Hardware Specifications
 
-Built firmware images are available for many architectures and come with a
-package selection to be used as WiFi home router. To quickly find a factory
-image usable to migrate from a vendor stock firmware to OpenWrt, try the
-*Firmware Selector*.
+| Component | Specification |
+| :--- | :--- |
+| **SoC** | EcoNet / Airoha EN7528DU (Dual-core MIPS 24KEc, `mipsel_24kc` Little-Endian) |
+| **RAM** | 512 MB DDR3 |
+| **Flash** | 256 MB SPI NAND (`mtd0` TcBoot, `mtd1` romfile, `mtd2` Bank 1 / tclinux, `mtd5` Bank 2 / tclinux_slave) |
+| **LAN Switch** | MediaTek MT7530 internal switch via DSA (`lan1`–`lan4` bridged into `br-lan`) |
+| **Wi-Fi 2.4 GHz** | MediaTek MT7603E (802.11b/g/n, 2x2 MIMO) |
+| **Wi-Fi 5 GHz** | MediaTek MT7615E / MT7663 (802.11a/n/ac, 4x4 MIMO, VHT80) |
+| **Optical WAN** | Integrated EcoNet GPON MAC (`1fb60000.xmac`, netdev `pon0`), Airoha EN7571 BOSA controller |
 
-* [OpenWrt Firmware Selector](https://firmware-selector.openwrt.org/)
+---
 
-If your device is supported, please follow the **Info** link to see install
-instructions or consult the support resources listed below.
+## 2. GPON & OMCI Architecture
 
-##
+* **ITU-T G.984 GPON MAC:** Native hardware acceleration with dynamic Alloc-ID and GEM port provisioning directly from OLT grants.
+* **ITU-T G.988 OMCI Stack:** In-kernel baseline OMCI stack with multi-packet MIB upload (`net/xpon/omci/agent.c`) and Radisys (`RSYS`) interoperability.
+* **Carrier Datapath:** 802.1Q VLAN 1015 (`pon0.1015`), IPoE DHCP with mandatory Option 60 (Vendor Class Identifier) and Option 61 (Client Identifier). Option 12 (Hostname) is suppressed (`*`) to ensure compatibility with carrier BRAS gateways.
 
-An advanced user may require additional or specific package. (Toolchain, SDK, ...) For everything else than simple firmware download, try the wiki download page:
+---
 
-* [OpenWrt Wiki Download](https://openwrt.org/downloads)
+## 3. Out-Of-The-Box Defaults
 
-## Development
+On first boot after installation, the firmware automatically initializes with generic, secure defaults:
 
-To build your own firmware you need a GNU/Linux, BSD or macOS system (case
-sensitive filesystem required). Cygwin is unsupported because of the lack of a
-case sensitive file system.
+* **LAN Network:**
+  * IP: `192.168.1.1`
+  * Netmask: `255.255.255.0`
+  * DHCP Server: Active (pool `192.168.1.100` – `192.168.1.250`)
+* **Wi-Fi (Active by default):**
+  * **2.4 GHz:** SSID `OpenWrt-JCOW414-2.4G` (Channel 6, HT20, WPA2-PSK: `openwrt123`)
+  * **5 GHz:** SSID `OpenWrt-JCOW414-5G` (Channel 36, VHT80, WPA2-PSK: `openwrt123`)
+* **WAN Interface:**
+  * Device: `pon0.1015`
+  * Protocol: DHCP (IPv4) + DHCPv6
+  * Hostname: `*` (suppressed)
+* **Identity:**
+  * Factory Native Identity (derives hardware MAC from bootloader nvmem and hardware GPON serial from reservearea).
 
-### Requirements
+---
 
-You need the following tools to compile OpenWrt, the package names vary between
-distributions. A complete list with distribution specific packages is found in
-the [Build System Setup](https://openwrt.org/docs/guide-developer/build-system/install-buildsystem)
-documentation.
+## 4. Subscriber Identity Configuration (One-Click Configurator)
 
+The firmware includes a unified identity configuration tool (`/usr/sbin/jiofiber-config`):
+
+### Mode A: Native Hardware Identity
+If your JioFiber subscription is provisioned directly on this physical router:
+```sh
+jiofiber-config native
 ```
-binutils bzip2 diff find flex gawk gcc-6+ getopt grep install libc-dev libz-dev
-make4.1+ perl python3.8+ rsync subversion unzip which
+This automatically clears MAC overrides and uses the hardware's native burnt-in MAC and serial number.
+
+### Mode B: Clone Subscribed Router
+If you are running OpenWrt on a secondary router and wish to use the subscription from your primary router:
+```sh
+jiofiber-config clone <SUBSCRIBED_GPON_SN> <SUBSCRIBED_WAN_MAC> [PLOAM_PASS]
 ```
 
-### Quickstart
+**Example:**
+```sh
+jiofiber-config clone SCOM1F821896 A8:88:1F:82:18:96 00000001
+```
 
-1. Run `./scripts/feeds update -a` to obtain all the latest package definitions
-   defined in feeds.conf / feeds.conf.default
+This single command automatically:
+1. Configures the xPON OMCI agent with the subscribed GPON serial and password.
+2. Sets the WAN MAC override (`network.wan.macaddr`).
+3. Formats and sets DHCP Option 60 (`network.wan.vendorid`).
+4. Formats and sets DHCP Option 61 (`network.wan.clientid`).
+5. Commits UCI and reloads networking and xPON services in one operation.
 
-2. Run `./scripts/feeds install -a` to install symlinks for all obtained
-   packages into package/feeds/
+### Via Web Interface (LuCI)
+* **xPON Profile:** Navigate to **xPON → OMCI → Profiles** and select `JioFiber - Sercomm JCOW414`.
+* **WAN Interface:** Navigate to **Network → Interfaces → wan** to adjust MAC and DHCP options.
 
-3. Run `make menuconfig` to select your preferred configuration for the
-   toolchain, target system & firmware packages.
+---
 
-4. Run `make` to build your firmware. This will download all sources, build the
-   cross-compile toolchain and then cross-compile the GNU/Linux kernel & all chosen
-   applications for your target system.
+## 5. Building the Firmware
 
-### Related Repositories
+### Prerequisites (Ubuntu/Debian)
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential libncurses-dev gawk git subversion libssl-dev \
+  gettext unzip zlib1g-dev file python3 libelf-dev
+```
 
-The main repository uses multiple sub-repositories to manage packages of
-different categories. All packages are installed via the OpenWrt package
-manager called `opkg`. If you're looking to develop the web interface or port
-packages to OpenWrt, please find the fitting repository below.
+### Build Commands
+```bash
+# 1. Update and install feeds
+./scripts/feeds update -a
+./scripts/feeds install -a
 
-* [LuCI Web Interface](https://github.com/openwrt/luci): Modern and modular
-  interface to control the device via a web browser.
+# 2. Load JCOW414 default config
+cp jcow414.defconfig .config
+make defconfig
 
-* [OpenWrt Packages](https://github.com/openwrt/packages): Community repository
-  of ported packages.
+# 3. Compile firmware
+make -j$(nproc)
+```
 
-* [OpenWrt Routing](https://github.com/openwrt/routing): Packages specifically
-  focused on (mesh) routing.
+The resulting sysupgrade image will be generated at:
+`bin/targets/airoha/en7528/openwrt-airoha-en7528-sercomm_jiofiber-jcow414-squashfs-sysupgrade.bin`
 
-* [OpenWrt Video](https://github.com/openwrt/video): Packages specifically
-  focused on display servers and clients (Xorg and Wayland).
+---
 
-## Support Information
+## 6. Flashing Instructions
 
-For a list of supported devices see the [OpenWrt Hardware Database](https://openwrt.org/supported_devices)
+> [!CAUTION]
+> Always flash to **Bank 1 (`mtd2 = tclinux`) ONLY**. NEVER flash or erase `mtd0` (bootloader), `mtd1` (romfile), or `mtd5` (factory stock OS Bank 2).
 
-### Documentation
+From an existing OpenWrt or root shell:
+```sh
+# Copy firmware image to router
+scp openwrt-airoha-en7528-sercomm_jiofiber-jcow414-squashfs-sysupgrade.bin root@192.168.1.1:/tmp/fw.trx
 
-* [Quick Start Guide](https://openwrt.org/docs/guide-quick-start/start)
-* [User Guide](https://openwrt.org/docs/guide-user/start)
-* [Developer Documentation](https://openwrt.org/docs/guide-developer/start)
-* [Technical Reference](https://openwrt.org/docs/techref/start)
-
-### Support Community
-
-* [Forum](https://forum.openwrt.org): For usage, projects, discussions and hardware advise.
-* [Support Chat](https://webchat.oftc.net/#openwrt): Channel `#openwrt` on **oftc.net**.
-
-### Developer Community
-
-* [Bug Reports](https://bugs.openwrt.org): Report bugs in OpenWrt
-* [Dev Mailing List](https://lists.openwrt.org/mailman/listinfo/openwrt-devel): Send patches
-* [Dev Chat](https://webchat.oftc.net/#openwrt-devel): Channel `#openwrt-devel` on **oftc.net**.
-
-## License
-
-OpenWrt is licensed under GPL-2.0
+# Write to Bank 1 and reboot
+ssh root@192.168.1.1 "mtd write /tmp/fw.trx tclinux && reboot"
+```

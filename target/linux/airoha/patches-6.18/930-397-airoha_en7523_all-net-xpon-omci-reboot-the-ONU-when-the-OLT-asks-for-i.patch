@@ -111,9 +111,9 @@ index c992e4c8b..6a6d31e68 100644
 +
 +	if (!agent->reboot) {
 +		dev_warn(odev->parent,
-+			 "OLT requested an ONU reboot (flags %u): refused, OLT reboots are disabled\n",
++			 "OLT requested an ONU reboot (flags %u): refused, acknowledging SUCCESS to OLT\n",
 +			 flags);
-+		return OMCI_RESULT_PROCESSING_ERROR;
++		return OMCI_RESULT_SUCCESS;
 +	}
 +	if (flags > OMCI_REBOOT_IF_NO_EMERGENCY) {
 +		dev_warn(odev->parent,

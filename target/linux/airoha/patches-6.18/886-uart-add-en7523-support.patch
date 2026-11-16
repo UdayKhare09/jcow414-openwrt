@@ -124,19 +124,17 @@
  };
  
  /* Uart divisor latch read */
-@@ -2783,6 +2791,12 @@ serial8250_do_set_termios(struct uart_po
- 	baud = serial8250_get_baud_rate(port, termios, old);
- 	quot = serial8250_get_divisor(port, baud, &frac);
- 
+@@ -2564,6 +2572,10 @@ static void serial8250_set_divisor(struc
+ {
+ 	if (port->set_divisor)
+ 		port->set_divisor(port, baud, quot, quot_frac);
 +#ifdef CONFIG_SERIAL_8250_AIROHA
-+	/* Airoha SoCs have custom registers for baud rate settings */
-+	if (port->type == PORT_AIROHA)
++	else if (port->type == PORT_AIROHA)
 +		en7523_set_uart_baud_rate(port, baud);
 +#endif
-+
- 	/*
- 	 * Ok, we're now changing the port state. Do it with interrupts disabled.
- 	 *
+ 	else
+ 		serial8250_do_set_divisor(port, baud, quot);
+ }
 --- a/drivers/tty/serial/8250/Kconfig
 +++ b/drivers/tty/serial/8250/Kconfig
 @@ -356,6 +356,16 @@ config SERIAL_8250_ACORN

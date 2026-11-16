@@ -9,6 +9,48 @@
 #include <linux/xpon.h>
 #include "nl_transport.h"
 
+#ifndef XPON_CMD_LINK_GET
+enum {
+	XPON_CMD_LINK_GET = 10,
+	XPON_CMD_ENDPOINT_GET,
+	XPON_CMD_UNI_GET,
+	XPON_CMD_LINK_SET,
+	XPON_CMD_REPORT_GET,
+	XPON_CMD_REPORT_SET,
+};
+#endif
+
+#ifndef XPON_ATTR_CAPABILITIES
+enum {
+	XPON_ATTR_CAPABILITIES = 20,
+	XPON_ATTR_MAX_LINKS,
+	XPON_ATTR_MAX_ENDPOINTS,
+	XPON_ATTR_MAX_QUEUES,
+	XPON_ATTR_REPORT_SETS,
+	XPON_ATTR_MAX_REPORT_SETS,
+	XPON_ATTR_ONU_TYPE,
+	XPON_ATTR_UNI_COUNT,
+	XPON_ATTR_ID,
+	XPON_ATTR_TYPE,
+	XPON_ATTR_WIRE_ID,
+	XPON_ATTR_SCHEDULER_ID,
+	XPON_ATTR_LINK_ID,
+	XPON_ATTR_QUEUE,
+	XPON_ATTR_ENABLED,
+	XPON_ATTR_NETDEV_IFINDEX,
+	XPON_ATTR_NAME,
+	XPON_ATTR_LINK_STATE,
+	XPON_ATTR_RX_PACKETS,
+	XPON_ATTR_TX_PACKETS,
+	XPON_ATTR_REPORT_SET,
+	XPON_ATTR_THRESHOLD_TQ,
+	XPON_ATTR_PAD,
+	__XPON_ATTR_EXT_MAX,
+};
+#undef XPON_ATTR_MAX
+#define XPON_ATTR_MAX (__XPON_ATTR_EXT_MAX - 1)
+#endif
+
 struct field {
 	unsigned int attr;
 	const char *name;
@@ -17,7 +59,7 @@ struct field {
 
 static const struct field fields[] = {
 	{ XPON_ATTR_IFINDEX, "ifindex", 4 },
-	{ XPON_ATTR_MODE, "mode", 4 },
+	{ XPON_ATTR_MODE, "mode", 1 },
 	{ XPON_ATTR_AVAILABLE_MODES, "available_modes", 4 },
 	{ XPON_ATTR_REGISTRATION, "registration", 1 },
 	{ XPON_ATTR_CARRIER, "carrier", 1 },
@@ -88,7 +130,8 @@ static int decode_reply(struct nlmsghdr *nlh, void *arg)
 	if (nlh->nlmsg_len < NLMSG_LENGTH(GENL_HDRLEN))
 		return -EBADMSG;
 	genl = NLMSG_DATA(nlh);
-	if (genl->version != XPON_GENL_VERSION || genl->cmd != r->cmd)
+	if (genl->version != XPON_GENL_VERSION ||
+	    (genl->cmd != r->cmd && genl->cmd != XPON_CMD_GET))
 		return -EPROTO;
 	remaining = nlh->nlmsg_len - NLMSG_HDRLEN - GENL_HDRLEN;
 	attr = (void *)((char *)genl + GENL_HDRLEN);
