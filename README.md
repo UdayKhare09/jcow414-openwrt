@@ -215,6 +215,10 @@ The router will immediately boot back into the factory stock Jio OS!
 
 This project builds upon the incredible work of the open-source networking and embedded reverse-engineering community:
 
+* **Initial JCOW414 OpenWrt Bring-Up & Hardware Research:**
+  * **Anand ([@Asjohn720](https://github.com/Asjohn720))** — For the pioneering initial JCOW414 Device Tree Source (`en7528-sercomm-jcow414.dts`), kernel memory map definition, dual-bank packaging, and foundational OpenWrt bring-up work.
+  * **[@zke-7D6](https://github.com/zke-7D6)** — For early JCOW414 hardware teardown, PCB analysis, UART serial pinout discovery, and bootloader documentation.
+  * **[@gpsarathy](https://github.com/gpsarathy)** — For firmware decryption research and the JioFiber Home Gateway archive.
 * **[OpenWrt Project](https://openwrt.org/):** For the rock-solid open-source embedded operating system, kernel toolchain, and package ecosystem.
 * **[JFxploit](https://github.com/JFC-Group/JFxploit):** By the **JFC-Group** — for the remote web exploitation toolkit enabling root shell access without hardware disassembly.
 * **Upstream Airoha / EcoNet Driver Creators:**
