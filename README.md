@@ -112,13 +112,99 @@ The resulting sysupgrade image will be generated at:
 ## 6. Flashing Instructions
 
 > [!CAUTION]
-> Always flash to **Bank 1 (`mtd2 = tclinux`) ONLY**. NEVER flash or erase `mtd0` (bootloader), `mtd1` (romfile), or `mtd5` (factory stock OS Bank 2).
+> **Dual-Bank Safety Rule:** Always flash to **Bank 1 (`mtd2 = tclinux`) ONLY**. 
+> **NEVER** flash, erase, or overwrite `mtd0` (bootloader), `mtd1` (romfile), or `mtd5` (`tclinux_slave` / factory stock Jio OS). Keeping Bank 2 intact ensures your router remains 100% unbrickable.
 
-From an existing OpenWrt or root shell:
-```sh
-# Copy firmware image to router
-scp openwrt-airoha-en7528-sercomm_jiofiber-jcow414-squashfs-sysupgrade.bin root@192.168.1.1:/tmp/fw.trx
+---
 
-# Write to Bank 1 and reboot
-ssh root@192.168.1.1 "mtd write /tmp/fw.trx tclinux && reboot"
+### Method A: Flashing from Factory Stock Jio OS using JFxploit (No Disassembly Needed)
+
+You do **not** need to open the router casing or solder UART pins to flash OpenWrt. You can gain root access remotely over LAN using [JFxploit](https://github.com/JFC-Group/JFxploit):
+
+#### Step 1: Connect to the Router
+Connect your PC to any LAN port (`LAN1`–`LAN4`) with an Ethernet cable. The stock router web interface is at `192.168.29.1`.
+
+#### Step 2: Run JFxploit on your PC
+```bash
+# Clone JFxploit
+git clone https://github.com/JFC-Group/JFxploit.git
+cd JFxploit
+
+# Setup environment (uv recommended, or use pip)
+uv sync
+
+# Exploit router web interface and open root telnet
+uv run jfxploit run 192.168.29.1
 ```
+*(If you changed the default admin password in the Jio web GUI, pass `-u superadmin -P 'your_password'`)*.
+
+#### Step 3: Host the OpenWrt Firmware on your PC
+Download `openwrt-jcow414-squashfs-tclinux.trx` from the [Releases](https://github.com/UdayKhare09/jcow414-openwrt/releases) page. In your terminal, navigate to the folder containing the `.trx` file and start a temporary web server:
+```bash
+python3 -m http.server 8000
+```
+*(Find your PC's LAN IP, e.g. `192.168.29.150` via `ip a` or `ipconfig`)*.
+
+#### Step 4: Flash via Telnet on the Router
+Open a new terminal and connect to the exploited router's telnet shell:
+```bash
+telnet 192.168.29.1
+```
+Inside the router root shell, download and write the firmware:
+```sh
+cd /tmp
+
+# Download the OpenWrt TRX image from your PC
+wget http://192.168.29.xxx:8000/openwrt-jcow414-squashfs-tclinux.trx -O /tmp/fw.trx
+
+# Write to Bank 1 (tclinux)
+mtd -f write /tmp/fw.trx tclinux
+
+# Switch active boot bank to Bank 1 and reboot
+/usr/bin/sys bootflag swap
+reboot
+```
+
+#### Step 5: Access OpenWrt
+Wait ~60 seconds for the router to boot:
+* **Web UI (LuCI):** `http://192.168.1.1` (no password by default)
+* **Default Wi-Fi:** `OpenWrt-JCOW414-2.4G` and `OpenWrt-JCOW414-5G` (Password: `openwrt123`)
+
+---
+
+### Method B: Upgrading from an Existing OpenWrt Installation
+
+If your router is already running OpenWrt:
+
+#### Via LuCI Web Interface:
+1. Navigate to **System → Backup / Flash Firmware**.
+2. Under **Flash new firmware image**, upload `openwrt-jcow414-squashfs-sysupgrade.bin`.
+3. Click **Upload** and proceed.
+
+#### Via SSH Terminal:
+```bash
+# Copy sysupgrade image to router
+scp openwrt-jcow414-squashfs-sysupgrade.bin root@192.168.1.1:/tmp/
+
+# Run sysupgrade
+ssh root@192.168.1.1 "sysupgrade -v /tmp/openwrt-jcow414-squashfs-sysupgrade.bin"
+```
+
+---
+
+### Method C: Safety Fallback — How to Revert to Factory Jio OS
+
+Because Bank 2 (`mtd5 = tclinux_slave`) remains untouched:
+
+* **From OpenWrt shell:**
+  ```sh
+  fw_setenv bootflag 1
+  reboot
+  ```
+* **Or via TcBoot Serial Console (`bldr>`):**
+  ```text
+  bldr> memwl 80020000 31
+  bldr> flash dfc0000 80020000 1
+  bldr> go
+  ```
+The router will immediately boot back into the factory stock Jio OS!
