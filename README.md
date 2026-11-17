@@ -208,3 +208,16 @@ Because Bank 2 (`mtd5 = tclinux_slave`) remains untouched:
   bldr> go
   ```
 The router will immediately boot back into the factory stock Jio OS!
+
+---
+
+## 7. Credits & Acknowledgments
+
+This project builds upon the incredible work of the open-source networking and embedded reverse-engineering community:
+
+* **[OpenWrt Project](https://openwrt.org/):** For the rock-solid open-source embedded operating system, kernel toolchain, and package ecosystem.
+* **[JFxploit](https://github.com/JFC-Group/JFxploit):** By the **JFC-Group** — for the remote web exploitation toolkit enabling root shell access without hardware disassembly.
+* **Upstream Airoha / EcoNet Driver Creators:**
+  * **Lorenzo Bianconi**, **Felix Fietkau**, and **Christian Marangi** for the upstream Linux kernel Airoha Ethernet and QDMA subsystem architecture.
+  * **Matheus Sampaio Queiroga ([@Sirherobrine23](https://github.com/Sirherobrine23))** and **Cristian Papa** for the pioneering EN7523 / EN7528 xPON and OMCI driver implementations.
+* **[@pranavkhare11](https://github.com/pranavkhare11):** Special thanks for invaluable help and hands-on contributions in debugging the OMCI protocol state machine, MIB attribute negotiation, and hardware UART serial intercept.
