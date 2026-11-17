@@ -10,7 +10,7 @@ usage() {
     echo "  clone <GPON_SN> <WAN_MAC> [PASS]  Use credentials from an active subscribed Jio router"
     echo ""
     echo "Example:"
-    echo "  $0 clone SCOM1F821896 A8:88:1F:82:18:96 00000001"
+    echo "  $0 clone SCOMXXXXXXXX AA:BB:CC:DD:EE:FF 00000001"
     exit 1
 }
 

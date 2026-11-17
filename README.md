@@ -65,7 +65,7 @@ jiofiber-config clone <SUBSCRIBED_GPON_SN> <SUBSCRIBED_WAN_MAC> [PLOAM_PASS]
 
 **Example:**
 ```sh
-jiofiber-config clone SCOM1F821896 A8:88:1F:82:18:96 00000001
+jiofiber-config clone SCOMXXXXXXXX AA:BB:CC:DD:EE:FF 00000001
 ```
 
 This single command automatically:
