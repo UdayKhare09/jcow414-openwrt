@@ -24,26 +24,29 @@ This repository provides an open-source, upstream OpenWrt distribution with full
 * **ITU-T G.988 OMCI Stack:** In-kernel baseline OMCI stack with multi-packet MIB upload (`net/xpon/omci/agent.c`) and Radisys (`RSYS`) interoperability.
 * **Carrier Datapath:** 802.1Q VLAN 1015 (`pon0.1015`), IPoE DHCP with mandatory Option 60 (Vendor Class Identifier) and Option 61 (Client Identifier). Option 12 (Hostname) is suppressed (`*`) to ensure compatibility with carrier BRAS gateways.
 
-### GPON encryption compatibility
+### GPON Encryption Compatibility & ISP Support
 
-The Encrypted_Port-ID PLOAM control value `2` disables GEM payload encryption;
-`3` enables it. The driver must not enable decryption for both values. Doing so
-can leave GPON at O5 with working OMCI while unencrypted Ethernet replies fail
-CRC checks and PPPoE discovery times out. The OMCI management channel remains
-unencrypted. This correction requires a rebuilt kernel; changing WAN credentials
-or VLAN settings does not apply it.
+The `Encrypted_Port-ID` PLOAM control value `2` disables GEM payload encryption; `3` enables it. The driver must not enable decryption for both values. Doing so leaves GPON at O5 with working OMCI while unencrypted Ethernet replies fail CRC checks and PPPoE discovery times out. The OMCI management channel remains unencrypted. This correction requires a rebuilt kernel; changing WAN credentials or VLAN settings does not apply it.
 
-The default VLAN 1015/IPoE configuration is Jio-specific. Other providers need
-their own provisioned VLAN and WAN protocol, and O5 alone does not demonstrate
-working internet access.
+#### Reliance JioFiber (Verified by Maintainers)
+- **Status:** **Production Ready** (Tested and verified on live lines by maintainers).
+- **VLAN:** 1015 (`pon0.1015`).
+- **Protocol:** IPoE (DHCPv4 with Option 60/61 + DHCPv6 prefix delegation).
+- **Verified OLT:** Radisys (`RSYS`).
 
-For example, an Airtel India (Xstream Fiber) line was verified working with
-this correction using the GPON serial registered for the line (cloned from the
-provider's ONT), PPPoE on `pon0.100`
-(VLAN 100, priority 0, MTU 1480), and IPv6 via PPPoE `ipv6=1` with DHCPv6
-prefix delegation. On that line, upstream throughput was still limited to
-about 0.5 Mbit/s, so treat Airtel support as functional but not yet production
-ready.
+#### Airtel India / Xstream Fiber (Community Tested via PR #1 — Experimental)
+Airtel interoperability was enabled via [Pull Request #1](https://github.com/UdayKhare09/jcow414-openwrt/pull/1) by **[@amankrokx](https://github.com/amankrokx)** (Aman Kumar) and independently verified by **[@SwastikGorai](https://github.com/SwastikGorai)**.
+
+> [!IMPORTANT]
+> **Maintainer Disclaimer:** The repository maintainers do **not** have an active Airtel FTTH connection and have **not personally tested or verified** this setup. All Airtel support, testing, and debugging is community-driven.
+
+- **Status:** **Functional with Known Limitations (Experimental / Not Production Ready)**.
+- **VLAN:** 100 (`pon0.100`, priority 0, MTU 1480).
+- **Protocol:** PPPoE (PAP/CHAP authentication) + IPv6 via PPPoE (`ipv6=1` with DHCPv6 prefix delegation).
+- **Identity:** GPON Serial cloned from the provider's registered ONT.
+- **Known Limitations:**
+  - **Downstream:** Reaches full provisioned plan rate (e.g. 200+ Mbit/s).
+  - **Upstream Bottleneck (~0.5–0.8 Mbit/s):** On the tested Airtel lines, upstream throughput is currently bottlenecked at ~0.5–0.8 Mbit/s with high TCP retransmissions. Hardware counter inspection shows that ~94% of upstream bursts carry zero GEM payload because the EN7528 GPON MAC under Airtel's status-reporting DBA scheme reports minimal queue occupancy (DBRu). Community investigation is ongoing.
 
 ---
 
