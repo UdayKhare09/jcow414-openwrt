@@ -1,0 +1,199 @@
+From: Antigravity <support@deepmind.google.com>
+Subject: [PATCH] net: airoha: gpon: fix Nokia/Alcatel-Lucent (ALCL) OLT support without regressing Radisys (RSYS)
+
+On Nokia / Alcatel-Lucent (ALCL) ISAM OLTs:
+1. The OLT assigns an ONU-ID during ranging (O4) and transitions to O5,
+   but does not send PLOAM 0x0E (Configure_Port-ID). Per ITU-T G.984.3 §5.5.1,
+   the default OMCC GEM port is established automatically upon reaching State O5,
+   with Port-ID == ONU-ID. Automatically initialize the OMCC datapath on entering
+   O5 when it has not yet been configured, while continuing to support explicit
+   PLOAM 0x0E updates from OLTs such as Radisys (RSYS).
+2. Nokia ALCL sends Downstream PLOAM 0x08 (Encrypted_Port-ID) with mode=3
+   (Key 1, AES enabled) targeting the OMCC GEM port. Exempting OMCC from
+   decryption causes Nokia downstream OMCI frames to arrive as ciphertext,
+   failing CRC and preventing MIB sync. Honor encryption mode 3 on designated
+   OMCC ports while keeping port 0 unencrypted and keeping cleartext mode 2
+   (used by Radisys and Airtel) unencrypted.
+
+--- a/drivers/net/ethernet/airoha/airoha_ploam.c
++++ b/drivers/net/ethernet/airoha/airoha_ploam.c
+@@ -51,6 +51,10 @@
+ 	struct ploam_msg	dedup_prev;
+ 	bool			dedup_prev_valid;
+ 	u32			dedup_same_cnt;
++
++	/* OMCC channel state */
++	bool			omci_gem_configured;
++	u16			omci_gem_port;
+ };
+ 
+ /* -----------------------------------------------------------------------
+@@ -229,6 +233,26 @@
+ 	pp->state = new_state;
+ 	pp->ops->state_changed(pp->hw_priv, new_state);
+ 
++	if (new_state == GPON_O1_INITIAL) {
++		pp->omci_gem_configured = false;
++		pp->omci_gem_port = 0;
++	} else if (new_state == GPON_O5_OPERATION && !pp->omci_gem_configured) {
++		/*
++		 * ITU-T G.984.3 §5.5.1: The default OMCC GEM port is
++		 * established automatically upon reaching State O5, with
++		 * Port-ID == ONU-ID. Nokia/ALCL OLTs rely on this implicit
++		 * OMCC channel and do not send PLOAM 0x0E (Configure_Port-ID).
++		 */
++		if (pp->onu_id != PLOAM_ONU_UNASSIGNED) {
++			if (pp->ops->set_omci_gem(pp->hw_priv, pp->onu_id, true) == 0) {
++				pp->omci_gem_configured = true;
++				pp->omci_gem_port = pp->onu_id;
++				pr_info("airoha_ploam: auto-initialized OMCC GEM port %u on state O5\n",
++					pp->onu_id);
++			}
++		}
++	}
++
+ 	/*
+ 	 * Do not enqueue Serial_Number_ONU when entering O3.  The EN7523 GPON
+ 	 * MAC builds the message from G_VENDOR_ID, G_VS_SN and G_SN_MSG_CFG
+@@ -494,10 +518,17 @@
+ 	/* Do not acknowledge an OMCC assignment until the hardware path is
+ 	 * ready. The OLT will retry Configure-Port-ID after a transient
+ 	 * command failure.
++	 * If OMCC was already configured for a different port, release it first.
+ 	 */
++	if (pp->omci_gem_configured && pp->omci_gem_port != port_id && activate)
++		pp->ops->set_omci_gem(pp->hw_priv, pp->omci_gem_port, false);
++
+ 	if (pp->ops->set_omci_gem(pp->hw_priv, port_id, activate))
+ 		return;
+ 
++	pp->omci_gem_configured = activate;
++	pp->omci_gem_port = activate ? port_id : 0;
++
+ send_ack:
+ 	ploam_make_dm_bytes(dm_bytes, onu_id, type, c);
+ 	ploam_send_ack(pp, type, dm_bytes);
+@@ -635,6 +666,8 @@
+ {
+ 	pp->state                = GPON_O1_INITIAL;
+ 	pp->onu_id               = PLOAM_ONU_UNASSIGNED;
++	pp->omci_gem_configured  = false;
++	pp->omci_gem_port        = 0;
+ 	pp->key_exchange_pending = false;
+ 	pp->rei_seq              = 0;
+ 	pp->eqd                  = 0;
+--- a/drivers/net/ethernet/airoha/airoha_xpon.c
++++ b/drivers/net/ethernet/airoha/airoha_xpon.c
+@@ -978,7 +978,7 @@
+  * OLT configured for it, which by default carries the ONU-ID as its Port-ID;
+  * Port-ID 0 is kept for OLTs that use it before assigning one.
+  */
+-static bool gpon_is_omcc_gem(struct xpon_priv *priv, u16 gem_port_id)
++static bool __maybe_unused gpon_is_omcc_gem(struct xpon_priv *priv, u16 gem_port_id)
+ {
+ 	u32 omci = gpon_read(priv, GPON_OMCI_ID);
+ 	u8 onu_id = gpon_read(priv, GPON_ONU_ID) & ONU_ID_MASK;
+@@ -1019,13 +1019,19 @@
+ 	u32 cfg;
+ 	int ret, retry;
+ 
+-	bool is_omcc = gpon_is_omcc_gem(priv, gem_port_id);
+-
+ 	if (gem_port_id >= GPON_MAX_GEM_ID)
+ 		return -EINVAL;
+ 
+-	if (is_omcc)
++	/*
++	 * Port 0 is the GPON boot-default broadcast/unassigned GEM port and
++	 * must remain unencrypted. For all other ports (including OMCC ports
++	 * commanded with mode=3 by Nokia/ALCL OLTs), honour the encryption
++	 * setting recorded from Encrypted_Port-ID.
++	 */
++	if (gem_port_id == 0)
+ 		encrypted = false;
++	else if (test_bit(gem_port_id, priv->encrypted_gems))
++		encrypted = true;
+ 
+ 	cfg = GEM_CMD_WRITE | gem_port_id;
+ 	if (valid)
+@@ -1790,7 +1796,9 @@
+ 	 * one the OLT has not assigned would answer bandwidth-map grants
+ 	 * meant for another ONU on the PON.
+ 	 */
+-	ret = gpon_set_gem_port_hw(priv, gem_port_id, true, false);
++	ret = gpon_set_gem_port_hw(priv, gem_port_id, true,
++				   (gem_port_id != 0 && gem_port_id < GPON_MAX_GEM_ID &&
++				    test_bit(gem_port_id, priv->encrypted_gems)));
+ 	if (ret) {
+ 		dev_err(priv->dev,
+ 			"failed to configure GPON OMCC GEM port %u: %d\n",
+@@ -1812,9 +1820,11 @@
+ 	}
+ 
+ 	airoha_gpon_omci_set_channel(&priv->omci, gem_port_id, true);
+-	dev_dbg(priv->dev,
+-		"GPON OMCC datapath enabled: onu-id=%u tcont=0 gem=%u reg=%#08x\n",
+-		onu_id, gem_port_id, reg_val);
++	dev_info(priv->dev,
++		 "GPON OMCC datapath enabled: onu-id=%u tcont=0 gem=%u reg=%#08x (encrypted=%d)\n",
++		 onu_id, gem_port_id, reg_val,
++		 (gem_port_id != 0 && gem_port_id < GPON_MAX_GEM_ID &&
++		  test_bit(gem_port_id, priv->encrypted_gems)));
+ 	dev_dbg(priv->dev,
+ 		"GPON OMCC readback: omci=%#010x gem-status=%#010x tcont0-1=%#010x\n",
+ 		gpon_read(priv, GPON_OMCI_ID),
+@@ -1833,16 +1843,22 @@
+ 	int ret;
+ 
+ 	/*
+-	 * The OMCC is never encrypted in GPON (G.984.3 12.2), but this
+-	 * Nokia/ALCL OLT announces encrypt=3 for GEM 0 as well as for the
+-	 * service ports. Honouring that on GEM 0 decrypts a plaintext OMCC and
+-	 * every OMCI frame fails, so the ONU never answers and the OLT
+-	 * deactivates it. Exempt GEM 0 and take the OLT at its word everywhere
+-	 * else: with the port left in the clear the service ports deliver
+-	 * high-entropy frames with random MACs and nonsense ethertypes, which
+-	 * is ciphertext handed up undecrypted.
++	 * Encrypted_Port-ID payload encoding (ITU-T G.984.3 section 9.2.3.9):
++	 *   octet 3: port_id MSB
++	 *   octet 4: bits 7..4 = port_id LSB, bits 1..0 = encryption mode
++	 *
++	 * Encryption mode:
++	 *   0 = unencrypted
++	 *   1 = reserved
++	 *   2 = key 0 / unencrypted depending on profile; in ITU standard
++	 *       bit 0 selects encryption, so only 1/3 mean encrypted.
++	 *   3 = key 1, AES enabled
++	 *
++	 * Port 0 is always unencrypted. For any other port, mode 3 enables
++	 * AES hardware decryption. This includes Nokia/ALCL OMCC ports where
++	 * the OLT explicitly sends Encrypted_Port-ID with mode=3.
+ 	 */
+-	if (!is_omcc && encrypt_mode == 3)
++	if (port_id && encrypt_mode == 3)
+ 		__set_bit(port_id, priv->encrypted_gems);
+ 	else
+ 		__clear_bit(port_id, priv->encrypted_gems);
+@@ -2035,20 +2051,17 @@
+ 				     u8 direction, bool valid, bool encrypted)
+ {
+ 	struct xpon_priv *priv = hw_priv;
+-	bool is_omcc = gpon_is_omcc_gem(priv, gem_port_id);
+ 	int ret;
+ 
+ 	/*
+ 	 * The OLT may announce encryption with Encrypted_Port-ID before OMCI
+ 	 * creates the GEM port, as Nokia/ALCL OLTs do. Keep it when OMCI then
+ 	 * writes the port, as the vendor stack does, or the port is left
+-	 * passing ciphertext. Never encrypt OMCC.
++	 * passing ciphertext. Port 0 is always unencrypted.
+ 	 */
+-	if (!is_omcc && gem_port_id < GPON_MAX_GEM_ID &&
++	if (gem_port_id && gem_port_id < GPON_MAX_GEM_ID &&
+ 	    test_bit(gem_port_id, priv->encrypted_gems))
+ 		encrypted = true;
+-	else if (is_omcc)
+-		encrypted = false;
+ 	ret = gpon_set_gem_port_hw(priv, gem_port_id, valid, encrypted);
+ 	if (ret)
+ 		return ret;
