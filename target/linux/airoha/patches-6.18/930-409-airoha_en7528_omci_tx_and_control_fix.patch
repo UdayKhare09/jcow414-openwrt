@@ -150,7 +150,7 @@
  	 * is ciphertext handed up undecrypted.
  	 */
 -	if (port_id && encrypt_mode == 3)
-+	if (!is_omcc && (encrypt_mode == 2 || encrypt_mode == 3))
++	if (!is_omcc && encrypt_mode == 3)
  		__set_bit(port_id, priv->encrypted_gems);
  	else
  		__clear_bit(port_id, priv->encrypted_gems);
