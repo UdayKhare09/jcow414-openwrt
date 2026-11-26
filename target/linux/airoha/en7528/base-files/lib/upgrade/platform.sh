@@ -6,10 +6,18 @@ platform_do_upgrade() {
 
   case "$board" in
   dasan,h660gm-a-airtel|\
-  dasan,h660gm-a-generic|\
+  dasan,h660gm-a-generic)
+    CI_KERNPART="tclinux_kernel"
+    nand_do_upgrade "$1"
+    ;;
   jiofiber,jcow407|\
   jiofiber,jcow414)
     CI_KERNPART="tclinux_kernel"
+    # stage2 pivots root but /dev/root may remain mounted at /rom or /mnt/rom
+    # rather than /dev/ubiblock0_0, causing nand.sh's ubiblock -r to fail EBUSY.
+    umount -l /rom 2>/dev/null || :
+    umount -l /mnt/rom 2>/dev/null || :
+    ubiblock -r /dev/ubi0_0 2>/dev/null || :
     nand_do_upgrade "$1"
     ;;
   tplink,xc220-g3v)

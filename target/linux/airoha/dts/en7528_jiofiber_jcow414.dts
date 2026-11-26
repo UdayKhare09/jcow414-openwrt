@@ -34,62 +34,6 @@
 			function = LED_FUNCTION_STATUS;
 			gpios = <&pinctrl 23 GPIO_ACTIVE_LOW>;
 		};
-
-		led-lan1-green {
-			color = <LED_COLOR_ID_GREEN>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <1>;
-			gpios = <&pinctrl 30 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan1-amber {
-			color = <LED_COLOR_ID_AMBER>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <1>;
-			gpios = <&pinctrl 31 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan2-green {
-			color = <LED_COLOR_ID_GREEN>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <2>;
-			gpios = <&pinctrl 0 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan2-amber {
-			color = <LED_COLOR_ID_AMBER>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <2>;
-			gpios = <&pinctrl 1 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan3-green {
-			color = <LED_COLOR_ID_GREEN>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <3>;
-			gpios = <&pinctrl 2 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan3-amber {
-			color = <LED_COLOR_ID_AMBER>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <3>;
-			gpios = <&pinctrl 3 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan4-green {
-			color = <LED_COLOR_ID_GREEN>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <4>;
-			gpios = <&pinctrl 4 GPIO_ACTIVE_LOW>;
-		};
-
-		led-lan4-amber {
-			color = <LED_COLOR_ID_AMBER>;
-			function = LED_FUNCTION_LAN;
-			function-enumerator = <4>;
-			gpios = <&pinctrl 5 GPIO_ACTIVE_LOW>;
-		};
 	};
 
 	keys {
