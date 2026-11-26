@@ -141,6 +141,42 @@ const profiles = [
 		}
 	},
 	{
+		id: 'jiofiber-sercomm-jcow414-nokia-alcl',
+		name: 'JioFiber - Sercomm JCOW414 (Nokia / ALCL OLT)',
+		description: 'JioFiber on Nokia/Alcatel-Lucent (ALCL ISAM) OLTs using the Sercomm JCOW414 identity. Forces the nokia-alcl OMCI OLT profile without changing the default Radisys/auto profile. Run jio-fiber-nokia or configure pon0.1015 MAC, PCP 0 egress QoS, DHCP Option 60/61, and DHCPv6 DUID-LL.',
+		inputs: [
+			{
+				name: 'serial',
+				label: 'GPON SN',
+				required: true
+			},
+			{
+				name: 'password',
+				label: 'GPON password',
+				required: false,
+				default: '00000001'
+			}
+		],
+		values: {
+			enabled: '1',
+			permissive: '1',
+			fake_omci: '0',
+			dying_gasp: '1',
+			vendor_id: 'SCOM',
+			password: '00000001',
+			equipment_id: 'ECONET',
+			olt_profile: 'nokia-alcl',
+			olt_profile_force: 'nokia-alcl',
+			hardware_version: 'RP0201',
+			software_version_0: 'JCOW414_R2.59',
+			software_version_1: 'JCOW414_R2.59',
+			omcc_version: '0xA0',
+			onu_type: '2',
+			traffic_management_option: '2',
+			reboot: '0'
+		}
+	},
+	{
 		id: 'vivo-sp1-mitrastar-gpt2741gnac-n1',
 		name: 'Vivo SP1 - Mitrastar GPT-2741GNAC-N1',
 		description: 'Vivo São Paulo capital profile using the MitraStar identity.',
