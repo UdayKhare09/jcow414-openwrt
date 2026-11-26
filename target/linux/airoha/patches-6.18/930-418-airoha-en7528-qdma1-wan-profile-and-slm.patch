@@ -1,0 +1,115 @@
+From: Ashwani <thesingletonclass@gmail.com>
+Subject: [PATCH] net: airoha: enable EN7528 QDMA1 (WAN) profile and isolate it from QDMA0 (LAN)
+
+On EcoNet EN7528, only QDMA1 (id == 1) is wired to the WAN / PSE GPON path,
+while QDMA0 (id == 0) serves the LAN MT7530 switch port without a PSE buffer
+pool. Without an explicit QDMA1 profile, EN7528 WAN falls back to the tiny
+128-descriptor / 8-channel default and stalls under bursty GPON TX (-EBUSY).
+Conversely, applying EN751221 PSE buffer estimation to QDMA0 (id == 0) causes
+QDMA0 to evaluate an unmapped congestion counter and drop all LAN egress
+packets.
+
+Apply the QDMA_WAN configuration (SLM release, HWF fallback cap, production
+IRQ mask suppressing HWF empty/low storms, dscp_byte_swap, slm_release_en,
+econet_init_en751221_qdma, 1024 TX0 descriptors, 32 channels, and PSE IQ
+retire guard) strictly to econet_en7528 with qdma->id == 1, leaving QDMA0
+(LAN) and all econet_en751221 defaults untouched.
+
+Signed-off-by: Ashwani <thesingletonclass@gmail.com>
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -1242,7 +1242,7 @@
+ 
+ static bool econet_en751221_use_slm(struct airoha_qdma_mips *qdma)
+ {
+-	if (!airoha_is(qdma->qdma->eth, econet_en751221) ||
++	if (!airoha_is(qdma->qdma->eth, econet_en751221, econet_en7528) ||
+ 	    qdma->qdma->id != 1)
+ 		return false;
+ 
+@@ -1471,7 +1471,7 @@
+ 		 * coherent allocation; keep the exact 4096-entry profile when a
+ 		 * qdma1-buf region exists, otherwise use a conservative fallback.
+ 		 */
+-		if (airoha_is(qdma->qdma->eth, econet_en751221) && qdma->qdma->id == 1 &&
++		if (airoha_is(qdma->qdma->eth, econet_en751221, econet_en7528) && qdma->qdma->id == 1 &&
+ 		    num_desc > 256) {
+ 			dev_warn(qdma->qdma->eth->dev,
+ 				 "no %s memory-region, using %d instead of %d hw forwarding descriptors; bursty upstream traffic may be dropped\n",
+@@ -1676,7 +1676,8 @@
+ 
+ 				p = econet_irq_purpose(bit);
+ 
+-				if (airoha_is(qdma->qdma->eth, econet_en751221)) {
++				if (airoha_is(qdma->qdma->eth, econet_en751221) ||
++				    (airoha_is(qdma->qdma->eth, econet_en7528) && qdma->qdma->id == 1)) {
+ 					/*
+ 					 * Match qdma_dev.c's production mask. HWF
+ 					 * EMPTY/LOW are status/debug conditions, not
+@@ -1725,7 +1726,8 @@
+ 
+ 	qcfg = (struct qregs_qcfg) { 0 };
+ 	set_qregs_qcfg_msg_word_swap(&qcfg, true);
+-	set_qregs_qcfg_dscp_byte_swap(&qcfg, airoha_is(qdma->qdma->eth, econet_en751221));
++	set_qregs_qcfg_dscp_byte_swap(&qcfg, airoha_is(qdma->qdma->eth, econet_en751221) ||
++					    (airoha_is(qdma->qdma->eth, econet_en7528) && qdma->qdma->id == 1));
+ 	set_qregs_qcfg_payload_byte_sw(&qcfg, true);
+ 	if (airoha_is_econet(qdma->qdma->eth))
+ 		set_qregs_qcfg_dma_pref(&qcfg, QREGS_QCFG_DMA_PREF_ROUND_ROBIN);
+@@ -1740,7 +1742,8 @@
+ 	    qdma->qdma->id == 0)
+ 		set_qregs_qcfg_tx_immediate_done(&qcfg, true);
+ 
+-	if (airoha_is(qdma->qdma->eth, econet_en751221)) {
++	if (airoha_is(qdma->qdma->eth, econet_en751221) ||
++	    (airoha_is(qdma->qdma->eth, econet_en7528) && qdma->qdma->id == 1)) {
+ 		/*
+ 		 * Stock QDMA_LAN uses TX_IMMEDIATE_DONE (0x9c180075), while
+ 		 * QDMA_WAN uses SLM_RELEASE_EN (0x9c280075). RX_2B_OFFSET is
+@@ -1759,7 +1762,8 @@
+ 
+ 	econet_wreg(0U, &qdma->regs->rx_int_delay);
+ 
+-	if (airoha_is(qdma->qdma->eth, econet_en751221)) {
++	if (airoha_is(qdma->qdma->eth, econet_en751221) ||
++	    (airoha_is(qdma->qdma->eth, econet_en7528) && qdma->qdma->id == 1)) {
+ 		econet_init_en751221_qdma(qdma);
+ 	} else {
+ 		struct qregs_tx_congest_cfg cngst_cfg = { 0 };
+@@ -5049,7 +5053,7 @@
+ 		return -EINVAL;
+ 
+ 	eth = common->eth;
+-	if (airoha_is(eth, econet_en751221) && airoha_pse_iq_abnormal(eth)) {
++	if (airoha_is(eth, econet_en751221, econet_en7528) && airoha_pse_iq_abnormal(eth)) {
+ 		netdev_info(netdev,
+ 			    "PSE input queues abnormal, GDM2 channel %u not retired\n",
+ 			    channel);
+@@ -5153,7 +5157,7 @@
+ 	dev = container_of(common, struct airoha_gdm_dev, common);
+ 	eth = common->eth;
+ 
+-	if (airoha_is(eth, econet_en751221) && airoha_pse_iq_abnormal(eth)) {
++	if (airoha_is(eth, econet_en751221, econet_en7528) && airoha_pse_iq_abnormal(eth)) {
+ 		netdev_info(netdev,
+ 			    "PSE input queues abnormal, GDM2 channels not retired\n");
+ 		return;
+@@ -5318,6 +5322,17 @@
+ 		cfg->done_list_irq_threshold[0] = 16;
+ 		cfg->num_fwd_descs = 4096;
+ 		cfg->fwd_low_threshold = 256;
++		cfg->num_channels = 32;
++	} else if (soc->version == econet_en7528 && id == 1) {
++		/* EN7528 WAN (QDMA1) profile: avoid 128-desc TX starvation without altering QDMA0 LAN or EN751221. */
++		cfg->num_rx_descs[0] = 512;
++		cfg->num_rx_descs[1] = 256;
++		cfg->num_tx_descs[0] = 1024;
++		cfg->num_tx_descs[1] = 128;
++		cfg->done_list_size[0] = 2048;
++		cfg->done_list_irq_threshold[0] = 1;
++		cfg->num_fwd_descs = 256;
++		cfg->fwd_low_threshold = 32;
+ 		cfg->num_channels = 32;
+ 	}
+ }

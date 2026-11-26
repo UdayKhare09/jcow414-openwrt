@@ -1,0 +1,20 @@
+From: Ashwani <thesingletonclass@gmail.com>
+Subject: [PATCH] net: airoha: ploam: reset AES key_idx in ploam_reset()
+
+ploam_reset() clears state, onu_id, omci_gem_configured, eqd, and pending key
+exchange state on session teardown, but leaves pp->key_idx at its previous
+session value. Reset pp->key_idx = 0 so every fresh activation begins AES key
+exchange consistently from key index 0.
+
+Signed-off-by: Ashwani <thesingletonclass@gmail.com>
+
+--- a/drivers/net/ethernet/airoha/airoha_ploam.c
++++ b/drivers/net/ethernet/airoha/airoha_ploam.c
+@@ -666,6 +666,7 @@
+ {
+ 	pp->state                = GPON_O1_INITIAL;
+ 	pp->onu_id               = PLOAM_ONU_UNASSIGNED;
++	pp->key_idx              = 0;
+ 	pp->omci_gem_configured  = false;
+ 	pp->omci_gem_port        = 0;
+ 	pp->key_exchange_pending = false;

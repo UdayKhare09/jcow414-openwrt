@@ -1,0 +1,254 @@
+#!/bin/sh
+# JioFiber Nokia/Alcatel-Lucent (nokia-alcl) Subscriber & WAN Configurator for Sercomm JCOW414
+#
+# Scoped exclusively for JioFiber lines terminated on Nokia / ALCL ISAM OLTs.
+# Leaves non-Nokia (e.g. Radisys/generic/Airtel/HGU) profiles and defaults untouched.
+
+set -u
+
+usage() {
+    cat <<EOF
+Usage: $0 {status|native|apply <GPON_SN> <WAN_MAC> [PLOAM_PASS]|clone <GPON_SN> <WAN_MAC> [PLOAM_PASS]}
+
+Commands:
+  status                             Show active xPON, Nokia profile, and WAN/VLAN/QoS settings
+  native                             Revert Nokia/ALCL profile overrides and restore auto OLT detection
+  apply <GPON_SN> <WAN_MAC> [PASS]   Configure Sercomm JCOW414 identity + Nokia/ALCL L2/L3 WAN parameters
+  clone <GPON_SN> <WAN_MAC> [PASS]   Alias for 'apply'
+
+Notes:
+  - GPON_SN must be 12 chars (4 ASCII vendor + 8 hex digits, e.g. SCOM12345678) or 16 hex digits.
+  - WAN_MAC may use ':', '-', '.' separators or none (e.g. AA:BB:CC:DD:EE:FF).
+  - PASS defaults to '00000001' (1..10 ASCII characters).
+  - Manages Nokia/ALCL-dependent settings only:
+      * Forces xpon.main.olt_profile='nokia-alcl' and olt_profile_force='nokia-alcl'
+      * Clones WAN MAC onto both pon0 and pon0.1015 devices
+      * Forces 802.1p egress QoS PCP 0 for all skb priorities (0:0..7:0) on pon0.1015
+      * Configures DHCPv4 Option 60 (uppercase MAC), Option 61 (01+mac), and broadcast flag
+      * Configures DHCPv6 DUID-LL (00030001 + lowercase MAC) on wan6
+
+Example:
+  $0 apply SCOM12345678 AA:BB:CC:DD:EE:FF 00000001
+EOF
+    exit "${1:-1}"
+}
+
+clean_hex_upper() {
+    printf '%s' "$1" | tr 'a-f' 'A-F' | tr -d ':.-'
+}
+
+validate_mac() {
+    local hex first_byte
+    hex=$(clean_hex_upper "$1")
+    case "$hex" in
+        [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F])
+            ;;
+        *)
+            echo "Error: invalid MAC address '$1' (expected 12 hex digits)" >&2
+            exit 1
+            ;;
+    esac
+    if [ "$hex" = "000000000000" ] || [ "$hex" = "FFFFFFFFFFFF" ]; then
+        echo "Error: invalid MAC address '$1' (all-zero or broadcast)" >&2
+        exit 1
+    fi
+    # Reject multicast bit (bit 0 of first octet)
+    first_byte=$(printf '%s' "$hex" | cut -c1-2)
+    case "$first_byte" in
+        *[13579BDF])
+            echo "Error: invalid WAN MAC '$1' (multicast bit set)" >&2
+            exit 1
+            ;;
+    esac
+}
+
+validate_sn() {
+    local sn="$1"
+    if printf '%s' "$sn" | grep -Eq '^[A-Za-z0-9]{4}[0-9A-Fa-f]{8}$'; then
+        return 0
+    fi
+    if printf '%s' "$sn" | grep -Eq '^[0-9A-Fa-f]{16}$'; then
+        return 0
+    fi
+    echo "Error: invalid GPON serial '$sn' (expected VVVVHHHHHHHH or 16 hex digits)" >&2
+    exit 1
+}
+
+normalize_sn() {
+    local vendor tail
+    if [ "${#1}" -eq 12 ]; then
+        vendor=$(printf '%s' "$1" | cut -c1-4)
+        tail=$(printf '%s' "$1" | cut -c5-12 | tr 'a-f' 'A-F')
+        printf '%s%s' "$vendor" "$tail"
+    else
+        printf '%s' "$1" | tr 'a-f' 'A-F'
+    fi
+}
+
+validate_pass() {
+    local len="${#1}"
+    if [ "$len" -lt 1 ] || [ "$len" -gt 10 ]; then
+        echo "Error: PLOAM password must be 1..10 characters" >&2
+        exit 1
+    fi
+}
+
+normalize_mac_upper() {
+    clean_hex_upper "$1" | sed 's/\(..\)/\1:/g; s/:$//'
+}
+
+mac_to_lower_hex() {
+    printf '%s' "$1" | tr 'A-F' 'a-f' | tr -d ':.-'
+}
+
+reload_services() {
+    echo "[*] Reloading network and applying xPON configuration..."
+    /etc/init.d/network restart
+    if command -v xponctl >/dev/null 2>&1; then
+        xponctl apply >/dev/null 2>&1 || :
+        xponctl omci apply >/dev/null 2>&1 || :
+    fi
+}
+
+case "${1:-}" in
+    status)
+        echo "=== xPON Configuration ==="
+        uci -q show xpon.main
+        echo ""
+        echo "=== Nokia PON Device & VLAN QoS Configuration ==="
+        uci -q show network.pon0_dev network.pon0_1015_dev
+        echo ""
+        echo "=== WAN / WAN6 Configuration ==="
+        uci -q show network.wan network.wan6
+        if [ -r /proc/net/vlan/pon0.1015 ]; then
+            echo ""
+            echo "=== Active Kernel VLAN State (/proc/net/vlan/pon0.1015) ==="
+            cat /proc/net/vlan/pon0.1015
+        fi
+        ;;
+    native)
+        echo "[*] Reverting Nokia/ALCL overrides and restoring automatic OLT profile..."
+        uci set xpon.main.olt_profile='auto'
+        uci set xpon.main.olt_profile_force='unspecified'
+        uci set xpon.main.vendor_id='SCOM'
+        uci set xpon.main.equipment_id='ECONET'
+        uci set xpon.main.hardware_version='RP0201'
+        uci set xpon.main.software_version_0='JCOW414_R2.59'
+        uci set xpon.main.software_version_1='JCOW414_R2.59'
+        uci set xpon.main.omcc_version='0xA0'
+        uci set xpon.main.onu_type='2'
+        uci set xpon.main.traffic_management_option='2'
+        uci -q delete xpon.main.serial
+        uci -q delete xpon.main.password
+        uci -q delete xpon.main.profile
+        uci commit xpon
+
+        uci -q delete network.pon0_dev
+        uci -q delete network.pon0_1015_dev
+        uci -q delete network.wan.macaddr
+        uci -q delete network.wan.vendorid
+        uci -q delete network.wan.clientid
+        uci -q delete network.wan.broadcast
+        uci set network.wan.device='pon0.1015'
+        uci set network.wan.proto='dhcp'
+        uci set network.wan.hostname='*'
+        uci -q delete network.wan6.clientid
+        uci commit network
+
+        reload_services
+        echo "[+] Restored native/auto hardware identity."
+        ;;
+    apply|clone)
+        [ "$#" -lt 3 ] || [ "$#" -gt 4 ] && usage 1
+        RAW_SN="$2"
+        RAW_MAC="$3"
+        PASS="${4:-00000001}"
+
+        validate_sn "$RAW_SN"
+        validate_mac "$RAW_MAC"
+        validate_pass "$PASS"
+
+        SN=$(normalize_sn "$RAW_SN")
+        MAC=$(normalize_mac_upper "$RAW_MAC")
+        MAC_HEX_LOWER=$(mac_to_lower_hex "$RAW_MAC")
+        CLIENT_ID="01${MAC_HEX_LOWER}"
+        DUID_LL="00030001${MAC_HEX_LOWER}"
+
+        echo "[*] Configuring JioFiber Nokia/ALCL identity:"
+        echo "    OLT Profile: nokia-alcl (forced)"
+        echo "    GPON SN:     $SN"
+        echo "    WAN MAC:     $MAC"
+        echo "    Option 60:   $MAC"
+        echo "    Option 61:   $CLIENT_ID"
+        echo "    DHCPv6 DUID: $DUID_LL"
+        echo "    Egress QoS:  PCP 0 forced for skb prio 0..7 on pon0.1015"
+        echo "    Password:    $PASS"
+
+        # 1. Force nokia-alcl OLT profile and JCOW414 OMCI/PLOAM identity
+        uci set xpon.main=agent
+        uci set xpon.main.enabled='1'
+        uci set xpon.main.netdev='pon0'
+        uci set xpon.main.permissive='1'
+        uci set xpon.main.fake_omci='0'
+        uci set xpon.main.dying_gasp='1'
+        uci set xpon.main.reboot='0'
+        uci set xpon.main.olt_profile='nokia-alcl'
+        uci set xpon.main.olt_profile_force='nokia-alcl'
+        uci set xpon.main.vendor_id='SCOM'
+        uci set xpon.main.equipment_id='ECONET'
+        uci set xpon.main.hardware_version='RP0201'
+        uci set xpon.main.software_version_0='JCOW414_R2.59'
+        uci set xpon.main.software_version_1='JCOW414_R2.59'
+        uci set xpon.main.omcc_version='0xA0'
+        uci set xpon.main.onu_type='2'
+        uci set xpon.main.traffic_management_option='2'
+        uci set xpon.main.profile='jiofiber-sercomm-jcow414-nokia-alcl'
+        uci set xpon.main.serial="$SN"
+        uci set xpon.main.password="$PASS"
+        uci commit xpon
+
+        # 2. Match subscribed MAC on pon0 + pon0.1015 and map all egress skb priorities to PCP 0
+        uci set network.pon0_dev=device
+        uci set network.pon0_dev.name='pon0'
+        uci set network.pon0_dev.macaddr="$MAC"
+
+        uci set network.pon0_1015_dev=device
+        uci set network.pon0_1015_dev.name='pon0.1015'
+        uci set network.pon0_1015_dev.type='8021q'
+        uci set network.pon0_1015_dev.ifname='pon0'
+        uci set network.pon0_1015_dev.vid='1015'
+        uci set network.pon0_1015_dev.macaddr="$MAC"
+        uci -q delete network.pon0_1015_dev.egress_qos_mapping
+        for prio in 0 1 2 3 4 5 6 7; do
+            uci add_list network.pon0_1015_dev.egress_qos_mapping="${prio}:0"
+        done
+
+        # 3. WAN DHCPv4 (Option 60, Option 61, broadcast flag) & DHCPv6 (DUID-LL)
+        uci set network.wan=interface
+        uci set network.wan.device='pon0.1015'
+        uci set network.wan.proto='dhcp'
+        uci set network.wan.hostname='*'
+        uci set network.wan.metric='10'
+        uci set network.wan.macaddr="$MAC"
+        uci set network.wan.vendorid="$MAC"
+        uci set network.wan.clientid="$CLIENT_ID"
+        uci set network.wan.broadcast='1'
+
+        uci set network.wan6=interface
+        uci set network.wan6.device='pon0.1015'
+        uci set network.wan6.proto='dhcpv6'
+        uci set network.wan6.reqaddress='try'
+        uci set network.wan6.reqprefix='auto'
+        uci set network.wan6.clientid="$DUID_LL"
+        uci commit network
+
+        reload_services
+        echo "[+] Applied Nokia/ALCL JioFiber configuration."
+        ;;
+    -h|--help|help)
+        usage 0
+        ;;
+    *)
+        usage 1
+        ;;
+esac

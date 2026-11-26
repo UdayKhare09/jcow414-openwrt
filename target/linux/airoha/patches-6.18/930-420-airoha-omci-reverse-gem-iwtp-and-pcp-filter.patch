@@ -1,0 +1,123 @@
+From: Ashwani <thesingletonclass@gmail.com>
+Subject: [PATCH] net: omci: filter Extended VLAN rules by mapper PCP and support bottom-up GEM IWTP linking
+
+1. When resolving an 802.1p mapper with valid per-PCP slots, skip Extended
+   VLAN (ME 171) rules whose explicit filter inner/outer P-bit does not match
+   mapper_pcp, and keep mapper_pcp intact instead of overwriting it from the
+   rule filter.
+2. Some OLTs (such as Nokia/ALCL ISAM) leave the 802.1p mapper (ME 130)
+   forward GEM IWTP slots unset (0/0xffff) and link bottom-up via GEM IWTP
+   (ME 266) Interworking option = 5 ("802.1p mapper") pointing to the mapper
+   entity. When no forward slot is populated on an 802.1p mapper, fall back to
+   resolving active GEM IWTP instances pointing to that mapper; OLTs using
+   standard forward pointers take the unchanged forward path.
+
+Signed-off-by: Ashwani <thesingletonclass@gmail.com>
+
+--- a/net/xpon/omci/agent.c
++++ b/net/xpon/omci/agent.c
+@@ -3218,6 +3218,15 @@
+ 		struct omci_extended_vlan_rule rule = *ext_rule;
+ 		bool network_vlan = false;
+ 
++		if (mapper_pcp_valid) {
++			if (rule.filter_inner_pbit <= 7 &&
++			    rule.filter_inner_pbit != mapper_pcp)
++				return -EOPNOTSUPP;
++			if (rule.filter_outer_pbit <= 7 &&
++			    rule.filter_outer_pbit != mapper_pcp)
++				return -EOPNOTSUPP;
++		}
++
+ 		omci_profile_normalize_vlan_rule(agent->profile_effective, &rule);
+ 		memcpy(service.vlan_treatment, rule.raw + 8,
+ 		       sizeof(service.vlan_treatment));
+@@ -3244,14 +3253,16 @@
+ 		}
+ 		service.vlan_valid = network_vlan;
+ 
+-		if (rule.filter_inner_pbit <= 7) {
+-			service.pcp = rule.filter_inner_pbit;
+-			service.pcp_valid = true;
+-			service.queue = rule.filter_inner_pbit;
+-		} else if (rule.filter_outer_pbit <= 7) {
+-			service.pcp = rule.filter_outer_pbit;
+-			service.pcp_valid = true;
+-			service.queue = rule.filter_outer_pbit;
++		if (!mapper_pcp_valid) {
++			if (rule.filter_inner_pbit <= 7) {
++				service.pcp = rule.filter_inner_pbit;
++				service.pcp_valid = true;
++				service.queue = rule.filter_inner_pbit;
++			} else if (rule.filter_outer_pbit <= 7) {
++				service.pcp = rule.filter_outer_pbit;
++				service.pcp_valid = true;
++				service.queue = rule.filter_outer_pbit;
++			}
+ 		}
+ 
+ 		/*
+@@ -3434,18 +3445,51 @@
+ 					 mapper_entity);
+ 		if (!mapper)
+ 			continue;
+-		for (pcp = 0; pcp < 8; pcp++) {
+-			gem_iwtp_entity = get_unaligned_be16(mapper->data + 2 +
+-							 pcp * 2);
+-			if (!gem_iwtp_entity || gem_iwtp_entity == 0xffff)
+-				continue;
+-			ret = omci_agent_stage_path_locked(
+-				odev, services, lan_port, uni_entity,
+-				wan_port->entity_id, mapper_entity,
+-				gem_iwtp_entity, pcp, true, false, 0, false,
+-				default_installed);
+-			if (ret && ret != -ENOENT)
+-				return ret;
++		{
++			bool mapper_found_gem = false;
++
++			for (pcp = 0; pcp < 8; pcp++) {
++				gem_iwtp_entity = get_unaligned_be16(mapper->data + 2 +
++								 pcp * 2);
++				if (!gem_iwtp_entity || gem_iwtp_entity == 0xffff)
++					continue;
++				mapper_found_gem = true;
++				ret = omci_agent_stage_path_locked(
++					odev, services, lan_port, uni_entity,
++					wan_port->entity_id, mapper_entity,
++					gem_iwtp_entity, pcp, true, false, 0, false,
++					default_installed);
++				if (ret && ret != -ENOENT)
++					return ret;
++			}
++			if (!mapper_found_gem) {
++				struct omci_mib_object *iwtp_obj;
++				unsigned long iwtp_idx;
++
++				xa_for_each(&agent->mib, iwtp_idx, iwtp_obj) {
++					if (!omci_mib_object_active(agent, iwtp_obj) ||
++					    iwtp_obj->class_id != OMCI_CLASS_GEM_IWTP)
++						continue;
++					/*
++					 * G.988 9.2.4: Interworking option 5 links bottom-up
++					 * from GEM IWTP to an 802.1p mapper via Service
++					 * profile pointer when forward mapper slots are empty.
++					 */
++					if (iwtp_obj->data[2] == 5 &&
++					    get_unaligned_be16(iwtp_obj->data + 3) == mapper_entity) {
++						dev_dbg(odev->parent,
++							"OMCI reverse lookup: GEM IWTP %#x -> mapper %#x\n",
++							iwtp_obj->entity_id, mapper_entity);
++						ret = omci_agent_stage_path_locked(
++							odev, services, lan_port, uni_entity,
++							wan_port->entity_id, mapper_entity,
++							iwtp_obj->entity_id, 0, false, false, 0, false,
++							default_installed);
++						if (ret && ret != -ENOENT)
++							return ret;
++					}
++				}
++			}
+ 		}
+ 	}
+ 
