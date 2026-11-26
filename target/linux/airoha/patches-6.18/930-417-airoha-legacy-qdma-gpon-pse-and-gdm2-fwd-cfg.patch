@@ -1,0 +1,64 @@
+From: Ashwani <thesingletonclass@gmail.com>
+Subject: [PATCH] net: airoha: fix legacy QDMA GPON PSE thresholds and GDM2 drop bits
+
+1. In airoha_eth_update_gpon_pse_buf(), program EcoNet legacy QDMA
+   (qdma->econet->regs->buf_usage_cfg with EN751221_PSE_BUF_* thresholds) when
+   airoha_has_legacy_qdma() is true instead of writing EN7523 register offset
+   REG_PSE_BUF_USAGE_CFG1. Also skip the trailing EN7523-offset
+   REG_PSE_BUF_USAGE_CFG clear in airoha_xpon_set_mode() on legacy QDMA SoCs
+   (EN751221 / EN7528).
+2. Fix REG_GDM_FWD_CFG(AIROHA_GDM2_IDX) value from 0x03f14444 to 0x03014444
+   right after clearing GDM_DROP_CRC_ERR_MASK so bits 23..20 (CRC_ERR,
+   IP4_CKSUM, TCP_CKSUM, UDP_CKSUM drops) are not immediately re-enabled,
+   matching the comment above it ("counted rather than silently dropped").
+
+Signed-off-by: Ashwani <thesingletonclass@gmail.com>
+
+--- a/drivers/net/ethernet/airoha/airoha_eth.c
++++ b/drivers/net/ethernet/airoha/airoha_eth.c
+@@ -5459,6 +5459,27 @@
+ 	struct airoha_qdma *qdma = &dev->eth->qdma[1];
+ 	u32 chan_thr, total_thr, val;
+ 
++	if (airoha_has_legacy_qdma(dev->eth)) {
++		struct qregs __iomem *regs = qdma->econet ? qdma->econet->regs : NULL;
++
++		if (!regs)
++			return;
++
++		val = econet_rreg(&regs->buf_usage_cfg);
++		val &= ~(EN751221_PSE_BUF_CH_THR_MASK |
++			 EN751221_PSE_BUF_TOTAL_THR_MASK);
++		val |= EN751221_PSE_BUF_CTRL_EN | EN751221_PSE_BUF_ESTIMATE_EN;
++		if (active_channels <= 1) {
++			val |= FIELD_PREP(EN751221_PSE_BUF_CH_THR_MASK, 16) |
++			       FIELD_PREP(EN751221_PSE_BUF_TOTAL_THR_MASK, 128);
++		} else {
++			val |= FIELD_PREP(EN751221_PSE_BUF_CH_THR_MASK, 32) |
++			       FIELD_PREP(EN751221_PSE_BUF_TOTAL_THR_MASK, 128);
++		}
++		econet_wreg(val, &regs->buf_usage_cfg);
++		return;
++	}
++
+ 	/* gpon_init_qdma_tx_buff() starts with conservative thresholds while
+ 	 * only the implicit ONU-ID T-CONT exists. xpon_reset_qdma_tx_buf()
+ 	 * expands them after service T-CONTs have been provisioned.
+@@ -5526,7 +5547,7 @@
+ 		 */
+ 		airoha_fe_clear(dev->eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX),
+ 				GDM_DROP_CRC_ERR_MASK);
+-		airoha_fe_wr(dev->eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX), 0x03f14444);
++		airoha_fe_wr(dev->eth, REG_GDM_FWD_CFG(AIROHA_GDM2_IDX), 0x03014444);
+ 		airoha_fe_wr(dev->eth, GDM_BASE(AIROHA_GDM2_IDX) + 0x2c, 0x44444444);
+ 		airoha_eth_update_gpon_pse_buf(dev, 1);
+ 	}
+@@ -5541,7 +5562,7 @@
+ 	    mode == AIROHA_XPON_MODE_GPON)
+ 		airoha_qdma_set(&dev->eth->qdma[1], REG_PSE_BUF_USAGE_CFG,
+ 				PSE_BUF_ESTIMATE_EN_MASK);
+-	else
++	else if (!airoha_has_legacy_qdma(dev->eth))
+ 		airoha_qdma_clear(&dev->eth->qdma[1], REG_PSE_BUF_USAGE_CFG,
+ 				  PSE_BUF_ESTIMATE_EN_MASK);
+ 
