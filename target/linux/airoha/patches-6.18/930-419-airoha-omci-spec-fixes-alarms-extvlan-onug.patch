@@ -1,0 +1,52 @@
+From: Ashwani <thesingletonclass@gmail.com>
+Subject: [PATCH] net: omci: fix ONU-G TC-layer width, Extended VLAN table mask, and Get All Alarms length
+
+Three ITU-T G.988 specification fixes affecting OMCI compliance generically:
+1. ONU-G (ME 256, G.988 9.1.1): Extended TC-layer options (attr 13, BIT(3))
+   is a 2-octet bitmask rather than 1 octet.
+2. Extended VLAN Tagging Operation Config Data (ME 171): table attribute 6
+   ("Received frame VLAN tagging operation table") is BIT(10)
+   (OMCI_EXT_VLAN_TABLE_MASK), whereas BIT(8) is the DSCP-to-P-bit map.
+   Matching BIT(10) ensures multi-part Get/Get Next table snapshots trigger
+   when the OLT reads the tagging table.
+3. Get All Alarms (G.988 A.2.15): the baseline response carries the 2-octet
+   "number of subsequent Get All Alarms Next commands" directly at content[0..1]
+   with no leading result byte.
+
+Signed-off-by: Ashwani <thesingletonclass@gmail.com>
+
+--- a/net/xpon/omci/agent.c
++++ b/net/xpon/omci/agent.c
+@@ -216,7 +216,7 @@
+ 	{ BIT(6), OMCI_ATTR_VALUE_ZERO, 24 },	/* Logical ONU ID */
+ 	{ BIT(5), OMCI_ATTR_VALUE_ZERO, 12 },	/* Logical password */
+ 	{ BIT(4), OMCI_ATTR_VALUE_ZERO, 1 },	/* Credentials status */
+-	{ BIT(3), OMCI_ATTR_VALUE_ZERO, 1 },	/* Extended TC layer */
++	{ BIT(3), OMCI_ATTR_VALUE_ZERO, 2 },	/* Extended TC layer */
+ };
+ 
+ static const struct omci_get_attr_layout omci_onu2_g_attr_layout[] = {
+@@ -2441,7 +2441,7 @@
+ 	if (class_id == OMCI_CLASS_ATTRIBUTE)
+ 		return mask & OMCI_ATTRIBUTE_CODE_POINTS_MASK;
+ 	if (class_id == OMCI_CLASS_EXTENDED_VLAN)
+-		return mask == BIT(8);
++		return mask == OMCI_EXT_VLAN_TABLE_MASK;
+ 
+ 	return false;
+ }
+@@ -4437,11 +4437,10 @@
+ 		}
+ 		break;
+ 	case OMCI_MSG_TYPE_GET_ALL_ALARMS:
+-		if (capacity < 3)
++		if (capacity < 2)
+ 			return -EMSGSIZE;
+-		content[0] = OMCI_RESULT_SUCCESS;
+-		put_unaligned_be16(0, content + 1);
+-		*content_len = 3;
++		put_unaligned_be16(0, content);
++		*content_len = 2;
+ 		break;
+ 	case OMCI_MSG_TYPE_GET_ALL_ALARMS_NEXT:
+ 		content[0] = OMCI_RESULT_UNKNOWN_INSTANCE;
